@@ -1,0 +1,17 @@
+node_modules/
+
+# Test output. Traces and the HTML report are CI artifacts, never committed.
+artifacts/
+test-results/
+playwright-report/
+
+# The plugin build under test is downloaded/unpacked per run by
+# scripts/prepare-plugin.mjs. Never commit a plugin build into this repo --
+# it would drift from the release being tested.
+.plugin-under-test/
+
+# Credentials. .env.example is committed; .env never is.
+.env
+
+.DS_Store
+*.log

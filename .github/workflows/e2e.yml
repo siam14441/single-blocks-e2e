@@ -1,0 +1,130 @@
+name: E2E — Single Blocks
+
+# Primary entry point is workflow_dispatch: a human preparing a release points
+# this at the candidate build. pull_request keeps the framework itself honest,
+# so a change to the suite is validated before it is trusted to gate a release.
+on:
+  workflow_dispatch:
+    inputs:
+      plugin_zip_url:
+        description: 'URL of the plugin zip to test (release candidates). Takes priority over plugin_version.'
+        required: false
+        type: string
+      plugin_version:
+        description: 'Published wp.org version to test, e.g. 1.5.0. Leave blank for latest.'
+        required: false
+        type: string
+      wp_version:
+        description: 'WordPress version, e.g. 6.7. Leave blank for latest.'
+        required: false
+        type: string
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Nightly against the current wp.org release, so a WordPress core update
+    # that breaks the block is caught before somebody reports it.
+    - cron: '0 3 * * *'
+
+jobs:
+  e2e:
+    name: Table of Contents
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # wp-env's fixed defaults. Not secrets -- the environment is created and
+      # destroyed inside this job and is never reachable from outside it.
+      WP_BASE_URL: http://localhost:8889
+      WP_USERNAME: admin
+      WP_PASSWORD: password
+      TOC_PLUGIN_ZIP: ${{ inputs.plugin_zip_url }}
+      TOC_PLUGIN_VERSION: ${{ inputs.plugin_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # --- 1. Dependencies -------------------------------------------------
+      - name: Install dependencies
+        run: npm ci
+
+      # --- 2. Resolve the build under test ---------------------------------
+      # Validates the archive and echoes the parsed Version header, so the log
+      # always states exactly which build these results describe.
+      - name: Prepare plugin under test
+        run: npm run prepare-plugin
+
+      - name: Pin WordPress version
+        if: inputs.wp_version != ''
+        run: |
+          node -e "
+            const fs = require('fs');
+            const cfg = JSON.parse(fs.readFileSync('.wp-env.json', 'utf8'));
+            cfg.core = 'WordPress/WordPress#${{ inputs.wp_version }}';
+            fs.writeFileSync('.wp-env.json', JSON.stringify(cfg, null, 2));
+            console.log('Pinned core to', cfg.core);
+          "
+
+      # --- 3. Boot WordPress -----------------------------------------------
+      - name: Start wp-env
+        run: npm run env:start
+
+      - name: Wait for WordPress to respond
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sSf -o /dev/null "$WP_BASE_URL/wp-json/"; then
+              echo "WordPress is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::WordPress did not respond at $WP_BASE_URL within 60s."
+          exit 1
+
+      - name: Record PHP version
+        run: echo "PHP_VERSION=$(npx wp-env run tests-cli php -r 'echo PHP_VERSION;' 2>/dev/null | tail -1)" >> "$GITHUB_ENV"
+
+      # --- 4. Preflight ----------------------------------------------------
+      # The gate that matters. Fails fast and loudly if the environment cannot
+      # produce a meaningful result -- above all if Essential Blocks is active,
+      # which would make the whole suite pass while testing nothing.
+      - name: Verify environment
+        run: npm run verify-env
+
+      # --- 5. Browser ------------------------------------------------------
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # --- 6. The suite ----------------------------------------------------
+      - name: Run E2E tests
+        run: npm test
+
+      # --- 7. Evidence -----------------------------------------------------
+      - name: Collect WordPress debug log
+        if: always()
+        run: npx wp-env run tests-cli cat /var/www/html/wp-content/debug.log > artifacts/wp-debug.log 2>/dev/null || echo "(no debug.log)" > artifacts/wp-debug.log
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            artifacts/**/*.md
+            artifacts/html-report/**
+            artifacts/test-results/**
+            artifacts/wp-debug.log
+          retention-days: 30
+
+      - name: Summarise in job output
+        if: always()
+        run: cat artifacts/qa-report-*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      # --- 8. Teardown -----------------------------------------------------
+      - name: Destroy wp-env
+        if: always()
+        run: npx wp-env destroy --debug <<< "y" || true

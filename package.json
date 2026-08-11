@@ -1,0 +1,32 @@
+{
+	"name": "single-blocks-e2e",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Playwright end-to-end regression suite for WPDeveloper standalone single-block plugins.",
+	"type": "module",
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"scripts": {
+		"prepare-plugin": "node scripts/prepare-plugin.mjs",
+		"activate-plugin": "node scripts/activate-plugin.mjs",
+		"verify-env": "node scripts/verify-environment.mjs",
+		"test": "playwright test",
+		"test:headed": "playwright test --headed",
+		"test:ui": "playwright test --ui",
+		"test:toc": "playwright test table-of-contents",
+		"report": "playwright show-report artifacts/html-report",
+		"env:start": "wp-env start",
+		"env:stop": "wp-env stop",
+		"env:destroy": "wp-env destroy",
+		"env:cli": "wp-env run tests-cli wp",
+		"verify:suite": "node scripts/verify-suite.mjs"
+	},
+	"devDependencies": {
+		"@playwright/test": "1.62.1",
+		"@types/node": "20.17.10",
+		"@wordpress/e2e-test-utils-playwright": "1.40.1",
+		"@wordpress/env": "11.12.0",
+		"typescript": "5.7.2"
+	}
+}

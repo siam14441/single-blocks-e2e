@@ -1,0 +1,18 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": [ "ES2022", "DOM", "DOM.Iterable" ],
+		"types": [ "node" ],
+		"strict": true,
+		"noEmit": true,
+		"esModuleInterop": true,
+		"allowSyntheticDefaultImports": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true
+	},
+	"include": [ "tests/**/*.ts", "reporters/**/*.ts", "playwright.config.ts" ],
+	"exclude": [ "node_modules", "artifacts", ".plugin-under-test" ]
+}
