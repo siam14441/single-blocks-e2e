@@ -4,7 +4,7 @@
  * becoming a second, competing artifact nobody reads.
  *
  * Conventions borrowed from the existing reports in eb-qa-reports/:
- *   - filename  qa-report-<slug>-<YYYY-MM-DD>.md
+ *   - filename  qa-report-<block-slug>-e2e-v<version>-<date>.md
  *   - a Verdict line immediately under the H1
  *   - a borderless metadata table
  *   - result tables of | # | Test | Result |, grouped by describe() block
@@ -14,6 +14,10 @@
  *
  * Writes to artifacts/. Copying into eb-qa-reports/ stays a human decision --
  * this reporter never writes outside its own repo.
+ *
+ * BLOCK-AGNOSTIC BY DESIGN: this file names no block. It reads which block ran
+ * from scripts/verify-environment.mjs's output (artifacts/environment.<slug>.json)
+ * -- see readEnvironment() below for how the slug itself is determined.
  */
 
 import fs from 'node:fs';
@@ -50,10 +54,12 @@ interface Row {
 
 /** Playwright colourises assertion messages; raw ANSI in markdown is unreadable. */
 // eslint-disable-next-line no-control-regex
-const ANSI = /\[[0-9;]*m/g;
+const ANSI = /\[[0-9;]*m/g;
 
 /** Written by scripts/verify-environment.mjs during preflight. */
 interface Environment {
+	slug?: string;
+	displayName?: string;
 	baseURL?: string;
 	wpVersion?: string | null;
 	phpVersion?: string | null;
@@ -129,10 +135,11 @@ export default class QaMarkdownReporter implements Reporter {
 		const env = this.readEnvironment();
 		const date = new Date().toISOString().slice( 0, 10 );
 		const version = env.pluginVersion ?? 'unknown';
+		const slug = env.slug ?? 'unknown-block';
 
 		const file = path.join(
 			this.artifactsDir,
-			`qa-report-toc-e2e-v${ version }-${ date }.md`
+			`qa-report-${ slug }-e2e-v${ version }-${ date }.md`
 		);
 
 		fs.mkdirSync( this.artifactsDir, { recursive: true } );
@@ -141,13 +148,66 @@ export default class QaMarkdownReporter implements Reporter {
 		console.log( `\n[qa-report] ${ file }` );
 	}
 
+	/**
+	 * Determines which block ran and loads the environment snapshot
+	 * scripts/verify-environment.mjs wrote for it.
+	 *
+	 * The reporter runs inside `playwright test`, which does not accept the
+	 * scripts' `--block=<slug>` flag, so block selection here is: the BLOCK
+	 * env var if set; otherwise, if exactly one `environment.*.json` exists in
+	 * artifacts/ (true for every CI run, since each matrix job starts from a
+	 * fresh checkout and tests one block), use it; otherwise fall back to the
+	 * most recently written one and say so, rather than silently guessing.
+	 */
 	private readEnvironment(): Environment {
+		const explicit = process.env.BLOCK;
+		if ( explicit ) {
+			return this.readEnvironmentFile( explicit );
+		}
+
+		let candidates: string[] = [];
+		try {
+			candidates = fs
+				.readdirSync( this.artifactsDir )
+				.filter( ( f ) => /^environment\..+\.json$/.test( f ) );
+		} catch {
+			return {}; // artifacts/ doesn't exist yet -- preflight was skipped.
+		}
+
+		if ( candidates.length === 0 ) {
+			return {};
+		}
+
+		if ( candidates.length > 1 ) {
+			candidates.sort(
+				( a, b ) =>
+					fs.statSync( path.join( this.artifactsDir, b ) ).mtimeMs -
+					fs.statSync( path.join( this.artifactsDir, a ) ).mtimeMs
+			);
+			console.log(
+				`[qa-report] Multiple environment files found (${ candidates.join( ', ' ) }); ` +
+					`using the most recent: ${ candidates[ 0 ] }. Set $BLOCK to be explicit.`
+			);
+		}
+
 		try {
 			return JSON.parse(
-				fs.readFileSync( path.join( this.artifactsDir, 'environment.json' ), 'utf8' )
+				fs.readFileSync( path.join( this.artifactsDir, candidates[ 0 ] ), 'utf8' )
 			);
 		} catch {
-			// Preflight was skipped. Report what we can rather than failing the run.
+			return {};
+		}
+	}
+
+	private readEnvironmentFile( slug: string ): Environment {
+		try {
+			return JSON.parse(
+				fs.readFileSync(
+					path.join( this.artifactsDir, `environment.${ slug }.json` ),
+					'utf8'
+				)
+			);
+		} catch {
 			return {};
 		}
 	}
@@ -170,18 +230,21 @@ export default class QaMarkdownReporter implements Reporter {
 
 		let verdict: string;
 		if ( regressions.length > 0 ) {
-			verdict = `**Verdict: ❌ FAIL — ${ regressions.length } of ${ total } checks regressed. Do not ship.**`;
+			verdict = `**Verdict: ❌ FAIL -- ${ regressions.length } of ${ total } checks regressed. Do not ship.**`;
 		} else if ( knownDefects.length > 0 ) {
 			verdict =
-				`**Verdict: ✅ PASS — no regressions. ` +
+				`**Verdict: ✅ PASS -- no regressions. ` +
 				`${ knownDefects.length } known defect(s) still open, none introduced by this build.**`;
 		} else {
-			verdict = `**Verdict: ✅ PASS — ${ passed } of ${ total } checks passed. No blockers.**`;
+			verdict = `**Verdict: ✅ PASS -- ${ passed } of ${ total } checks passed. No blockers.**`;
 		}
+
+		const displayName = env.displayName ?? env.slug ?? 'Unknown block';
+		const slug = env.slug ?? 'unknown-block';
 
 		const out: string[] = [];
 
-		out.push( `# QA Report — Table of Contents Block v${ version } (automated E2E)` );
+		out.push( `# QA Report: ${ displayName } v${ version } (automated E2E)` );
 		out.push( '' );
 		out.push( verdict );
 		out.push( '' );
@@ -190,11 +253,11 @@ export default class QaMarkdownReporter implements Reporter {
 		out.push( '| | |' );
 		out.push( '|---|---|' );
 		out.push( `| Date | ${ date } |` );
-		out.push( `| Suite | \`single-blocks-e2e\` — \`table-of-contents.spec.ts\` |` );
+		out.push( `| Suite | \`single-blocks-e2e\` -- \`${ slug }.spec.ts\` |` );
 		out.push( `| Site | ${ env.baseURL ?? 'unknown' } |` );
 		out.push( `| WP | ${ env.wpVersion ?? 'unknown' } |` );
 		out.push( `| PHP | ${ env.phpVersion ?? 'not exposed via REST' } |` );
-		out.push( `| Plugin | ${ env.pluginSlug ?? 'table-of-contents-block' } v${ version } |` );
+		out.push( `| Plugin | ${ env.pluginSlug ?? 'unknown' } v${ version } |` );
 		out.push(
 			`| Other plugins | ${
 				env.otherActivePlugins?.length ? env.otherActivePlugins.join( ', ' ) : 'none. Clean site.'
@@ -238,7 +301,7 @@ export default class QaMarkdownReporter implements Reporter {
 			out.push( 'These failed unexpectedly. Each is a regression in this build.' );
 			out.push( '' );
 			for ( const [ i, f ] of regressions.entries() ) {
-				out.push( `### F${ i + 1 } — ${ f.title }` );
+				out.push( `### F${ i + 1 }: ${ f.title }` );
 				out.push( '' );
 				out.push( `Group: ${ f.group }` );
 				out.push( '' );
@@ -263,7 +326,7 @@ export default class QaMarkdownReporter implements Reporter {
 			out.push( 'See the comment above each test for the full reproduction.' );
 			out.push( '' );
 			for ( const [ i, d ] of knownDefects.entries() ) {
-				out.push( `### D${ i + 1 } — ${ d.title }` );
+				out.push( `### D${ i + 1 }: ${ d.title }` );
 				out.push( '' );
 				out.push( `Group: ${ d.group }` );
 				out.push( '' );
@@ -278,12 +341,8 @@ export default class QaMarkdownReporter implements Reporter {
 		out.push( '' );
 		out.push( '## Scope note' );
 		out.push( '' );
-		out.push( 'Tier 1 only. Covers block registration, insertion, inspector tabs,' );
-		out.push( 'heading detection, and frontend navigation.' );
-		out.push( '' );
-		out.push( 'Not covered: settings behaviour (list style, presets, collapsible, sticky,' );
-		out.push( 'copy-link, scroll-to-top), FSE placement, nested container blocks, multiple' );
-		out.push( 'blocks per page, third-party heading integrations, PHP 7.4.' );
+		out.push( `Tier 1 only, for ${ displayName }. Full scope is documented at the top of` );
+		out.push( `tests/specs/${ slug }.spec.ts.` );
 		out.push( '' );
 		out.push( `Run status: ${ result.status }.` );
 		out.push( '' );

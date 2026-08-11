@@ -8,14 +8,15 @@
 		"node": ">=20.0.0"
 	},
 	"scripts": {
+		"list-blocks": "node scripts/list-blocks.mjs",
 		"prepare-plugin": "node scripts/prepare-plugin.mjs",
 		"activate-plugin": "node scripts/activate-plugin.mjs",
 		"verify-env": "node scripts/verify-environment.mjs",
 		"test": "playwright test",
 		"test:headed": "playwright test --headed",
 		"test:ui": "playwright test --ui",
-		"test:toc": "playwright test table-of-contents",
 		"report": "playwright show-report artifacts/html-report",
+		"generate-wp-env": "node scripts/generate-wp-env.mjs",
 		"env:start": "wp-env start",
 		"env:stop": "wp-env stop",
 		"env:destroy": "wp-env destroy",

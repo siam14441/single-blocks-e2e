@@ -14,7 +14,7 @@
  * it. Red on v1.5.0 means the test is wrong, not the plugin.
  */
 
-import { test, expect, expectNoBrowserErrors } from '../support/shared/test';
+import { test, expect, expectNoBrowserErrors } from '../support/table-of-contents/test';
 import { BLOCK, DEFAULTS, EDITOR, TABS } from '../support/table-of-contents/selectors';
 import {
 	STANDARD_HEADINGS,

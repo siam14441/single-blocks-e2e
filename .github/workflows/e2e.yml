@@ -1,17 +1,27 @@
-name: E2E — Single Blocks
+name: E2E - Single Blocks
 
 # Primary entry point is workflow_dispatch: a human preparing a release points
-# this at the candidate build. pull_request keeps the framework itself honest,
-# so a change to the suite is validated before it is trusted to gate a release.
+# this at the candidate build for one block. pull_request keeps the framework
+# itself honest by running every configured block against latest. schedule
+# does the same nightly, so a WordPress core update that breaks a block is
+# caught before somebody reports it.
+#
+# BLOCKS: the matrix is not hand-maintained. The "list blocks" job reads
+# blocks/*.config.mjs at run time (scripts/list-blocks.mjs), so adding a block
+# to this repo adds it to CI with no edit to this file.
 on:
   workflow_dispatch:
     inputs:
+      block:
+        description: 'Block slug to test, e.g. table-of-contents. Leave blank to test every configured block.'
+        required: false
+        type: string
       plugin_zip_url:
-        description: 'URL of the plugin zip to test (release candidates). Takes priority over plugin_version.'
+        description: 'URL of the plugin zip to test (release candidates). Takes priority over plugin_version. Only applies when "block" is set.'
         required: false
         type: string
       plugin_version:
-        description: 'Published wp.org version to test, e.g. 1.5.0. Leave blank for latest.'
+        description: 'Published wp.org version to test, e.g. 1.5.0. Leave blank for latest. Only applies when "block" is set.'
         required: false
         type: string
       wp_version:
@@ -21,15 +31,42 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    # Nightly against the current wp.org release, so a WordPress core update
-    # that breaks the block is caught before somebody reports it.
     - cron: '0 3 * * *'
 
 jobs:
+  list-blocks:
+    name: List blocks
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Determine block matrix
+        id: matrix
+        run: |
+          if [ -n "${{ inputs.block }}" ]; then
+            echo "matrix=[\"${{ inputs.block }}\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$(node scripts/list-blocks.mjs --json)" >> "$GITHUB_OUTPUT"
+          fi
+
   e2e:
-    name: Table of Contents
+    name: E2E (${{ matrix.block }})
+    needs: list-blocks
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    strategy:
+      # A failure in one block's suite must not cancel the others -- they are
+      # independent plugins and an unrelated regression shouldn't hide theirs.
+      fail-fast: false
+      matrix:
+        block: ${{ fromJson(needs.list-blocks.outputs.matrix) }}
 
     env:
       # wp-env's fixed defaults. Not secrets -- the environment is created and
@@ -37,8 +74,12 @@ jobs:
       WP_BASE_URL: http://localhost:8889
       WP_USERNAME: admin
       WP_PASSWORD: password
-      TOC_PLUGIN_ZIP: ${{ inputs.plugin_zip_url }}
-      TOC_PLUGIN_VERSION: ${{ inputs.plugin_version }}
+      BLOCK: ${{ matrix.block }}
+      # Empty unless workflow_dispatch supplied them -- prepare-plugin.mjs
+      # treats an empty value as "not set" and falls through to the next
+      # resolution step. Safe to pass unconditionally.
+      PLUGIN_ZIP: ${{ inputs.plugin_zip_url }}
+      PLUGIN_VERSION: ${{ inputs.plugin_version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -56,22 +97,14 @@ jobs:
       # Validates the archive and echoes the parsed Version header, so the log
       # always states exactly which build these results describe.
       - name: Prepare plugin under test
-        run: npm run prepare-plugin
-
-      - name: Pin WordPress version
-        if: inputs.wp_version != ''
-        run: |
-          node -e "
-            const fs = require('fs');
-            const cfg = JSON.parse(fs.readFileSync('.wp-env.json', 'utf8'));
-            cfg.core = 'WordPress/WordPress#${{ inputs.wp_version }}';
-            fs.writeFileSync('.wp-env.json', JSON.stringify(cfg, null, 2));
-            console.log('Pinned core to', cfg.core);
-          "
+        run: node scripts/prepare-plugin.mjs --block=${{ matrix.block }}
 
       # --- 3. Boot WordPress -----------------------------------------------
+      - name: Generate wp-env config
+        run: node scripts/generate-wp-env.mjs --block=${{ matrix.block }} --wp-version=${{ inputs.wp_version }}
+
       - name: Start wp-env
-        run: npm run env:start
+        run: npx wp-env start
 
       - name: Wait for WordPress to respond
         run: |
@@ -90,18 +123,20 @@ jobs:
 
       # --- 4. Preflight ----------------------------------------------------
       # The gate that matters. Fails fast and loudly if the environment cannot
-      # produce a meaningful result -- above all if Essential Blocks is active,
-      # which would make the whole suite pass while testing nothing.
+      # produce a meaningful result -- see blocks/<slug>.config.mjs for what
+      # this block declares as a registration conflict, and why.
       - name: Verify environment
-        run: npm run verify-env
+        run: node scripts/verify-environment.mjs --block=${{ matrix.block }}
 
       # --- 5. Browser ------------------------------------------------------
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
       # --- 6. The suite ----------------------------------------------------
+      # The positional filter matches the spec filename, which by convention
+      # equals the block slug -- see tests/specs/<slug>.spec.ts.
       - name: Run E2E tests
-        run: npm test
+        run: npx playwright test ${{ matrix.block }}
 
       # --- 7. Evidence -----------------------------------------------------
       - name: Collect WordPress debug log
@@ -112,9 +147,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-artifacts
+          # Matrix jobs share one workflow run, so the block slug keeps each
+          # job's artifact bundle from overwriting a sibling's.
+          name: e2e-artifacts-${{ matrix.block }}
           path: |
             artifacts/**/*.md
+            artifacts/**/*.json
             artifacts/html-report/**
             artifacts/test-results/**
             artifacts/wp-debug.log

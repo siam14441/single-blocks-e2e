@@ -10,6 +10,10 @@ playwright-report/
 # it would drift from the release being tested.
 .plugin-under-test/
 
+# Generated per run by scripts/generate-wp-env.mjs for the block being
+# tested. Not static config -- see that script for why.
+.wp-env.json
+
 # Credentials. .env.example is committed; .env never is.
 .env
 
