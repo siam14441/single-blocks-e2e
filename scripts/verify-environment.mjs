@@ -139,8 +139,12 @@ async function main() {
 			`Found active plugin: ${ eb.name } (${ eb.plugin })\n\n` +
 				`Essential Blocks registers "${ CONFLICTING_BLOCK }". The standalone\n` +
 				`plugin checks for exactly that and skips its own registration when it\n` +
-				`is present, so the block under test would never load. Tests would pass\n` +
-				`while asserting against nothing.\n\n` +
+				`is present, so the block under test never loads at all.\n\n` +
+				`This is worse than a broken run. Essential Blocks ships its own\n` +
+				`"Table of Contents" block, so parts of the suite go GREEN against the\n` +
+				`WRONG block -- verified: the inserter check passes, because it finds\n` +
+				`Essential Blocks' block under the same name. A release could be signed\n` +
+				`off on evidence that never touched the plugin being shipped.\n\n` +
 				`Deactivate Essential Blocks on this site and re-run.`
 		);
 	}
