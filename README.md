@@ -109,15 +109,15 @@ unchanged. That is why this repo is not named after one block.
 
 - **`.eb-tab-controlsgeneral`** — the panel class really is a separator-less
   concatenation of `"eb-tab-controls"` and the tab name. Not a typo.
-- **Class selectors instead of `getByRole`** — the block's *frontend* output
+- **Class selectors instead of `getByRole`** — the block's _frontend_ output
   contains no ARIA at all: no `<nav>`, no role, no label. Gutenberg core's own
   ToC has them, which is why its tests can use roles and ours cannot. The
-  inspector *tabs* do expose proper roles, and those tests use both.
+  inspector _tabs_ do expose proper roles, and those tests use both.
 - **`editor.canvas` everywhere** — the block is `apiVersion: 3`, so the editor
   canvas is an iframe. Querying block markup on `page` finds nothing.
 - **Fixtures always set `blockId`** — the PHP renderer reads
   `$attributes['blockId']` with no default, and a block without one emits a PHP
-  warning *into the REST response body*, corrupting JSON for every subsequent
+  warning _into the REST response body_, corrupting JSON for every subsequent
   request. Real posts always have one.
 - **`WP_DEBUG_DISPLAY: false` in `.wp-env.json`** — same reason. Warnings belong
   in `debug.log`, not in API responses.
@@ -133,10 +133,10 @@ regressions.
 If one starts passing, Playwright reports an unexpected pass — that is the
 signal it has been fixed and the marker should be removed.
 
-| # | Defect | Impact |
-|---|---|---|
-| D1 | The first heading added *after* the block is inserted is silently marked excluded (`deleteHeaderList` `isDelete: true`) and disappears once a second heading exists. | A section missing from the published TOC, in an ordinary authoring order, with no feedback to the author. |
-| D2 | An empty heading becomes a TOC entry with an empty link. The frontend href is `#eb-table-content-N`, which resolves to nothing — a genuinely broken link. | Empty bullet in the list plus a dead link. Editor and frontend also disagree on the href. |
+| #   | Defect                                                                                                                                                               | Impact                                                                                                    |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| D1  | The first heading added _after_ the block is inserted is silently marked excluded (`deleteHeaderList` `isDelete: true`) and disappears once a second heading exists. | A section missing from the published TOC, in an ordinary authoring order, with no feedback to the author. |
+| D2  | An empty heading becomes a TOC entry with an empty link. The frontend href is `#eb-table-content-N`, which resolves to nothing — a genuinely broken link.            | Empty bullet in the list plus a dead link. Editor and frontend also disagree on the href.                 |
 
 Full reproductions are in the comments above each test.
 
@@ -147,7 +147,7 @@ Full reproductions are in the comments above each test.
 A suite that has never failed is not evidence of anything.
 
 ```bash
-# Prepare an environment running a known-broken build (1.3.4), then:
+# Prepare an environment running a known-broken build, then:
 npm run verify:suite
 ```
 
@@ -166,13 +166,13 @@ wp.org release.
 
 Every step validates:
 
-| Step | Gate |
-|---|---|
-| Prepare plugin | archive valid, main PHP file present, **version echoed to the log** |
-| Start wp-env | HTTP 200 within 60s or fail fast |
-| Verify environment | plugin active, **EB not active**, block registered, apiVersion 3 |
-| Run tests | the suite |
-| Upload artifacts | report, traces, `wp-debug.log` — always, including on failure |
+| Step               | Gate                                                                |
+| ------------------ | ------------------------------------------------------------------- |
+| Prepare plugin     | archive valid, main PHP file present, **version echoed to the log** |
+| Start wp-env       | HTTP 200 within 60s or fail fast                                    |
+| Verify environment | plugin active, **EB not active**, block registered, apiVersion 3    |
+| Run tests          | the suite                                                           |
+| Upload artifacts   | report, traces, `wp-debug.log` — always, including on failure       |
 
 ---
 
