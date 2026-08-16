@@ -341,8 +341,8 @@ export default class QaMarkdownReporter implements Reporter {
 		out.push( '' );
 		out.push( '## Scope note' );
 		out.push( '' );
-		out.push( `Tier 1 only, for ${ displayName }. Full scope is documented at the top of` );
-		out.push( `tests/specs/${ slug }.spec.ts.` );
+		out.push( `Covers whichever spec files ran for ${ displayName } this pass. Full scope` );
+		out.push( `is documented at the top of each file under tests/specs/${ slug }*.spec.ts.` );
 		out.push( '' );
 		out.push( `Run status: ${ result.status }.` );
 		out.push( '' );

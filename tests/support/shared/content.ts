@@ -78,6 +78,16 @@ export function joinBlocks( ...blocks: string[] ): string {
 	return blocks.filter( Boolean ).join( '\n\n' );
 }
 
+/** Serializes a bare paragraph, used as filler content in scroll/layout
+ *  fixtures where a heading isn't wanted. */
+export function paragraphBlock( text: string ): string {
+	return [
+		`<!-- wp:paragraph -->`,
+		`<p>${ text }</p>`,
+		`<!-- /wp:paragraph -->`,
+	].join( '\n' );
+}
+
 /**
  * Serializes the Table of Contents block for a REST-created fixture post.
  *
@@ -98,7 +108,16 @@ export function joinBlocks( ...blocks: string[] ): string {
  *
  * The unguarded read is still a genuine robustness gap, worth reporting on its
  * own merits -- but hardening against it belongs in the plugin, not here.
+ *
+ * `attributes` is the only way a REST-created fixture post carries settings --
+ * there is no page-object equivalent of setAttributes() for a block that was
+ * never opened in the editor. `blockId` in the second param always wins over
+ * a same-named key accidentally included in `attributes`.
  */
-export function tocBlock( blockId = 'eb-toc-tst01' ): string {
-	return `<!-- wp:table-of-contents-block/table-of-contents-block {"blockId":"${ blockId }"} /-->`;
+export function tocBlock(
+	attributes: Record< string, unknown > = {},
+	blockId = 'eb-toc-tst01'
+): string {
+	const json = JSON.stringify( { ...attributes, blockId } );
+	return `<!-- wp:table-of-contents-block/table-of-contents-block ${ json } /-->`;
 }

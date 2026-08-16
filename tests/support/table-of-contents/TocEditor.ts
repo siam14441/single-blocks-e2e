@@ -14,6 +14,19 @@ import type { Locator, Page } from '@playwright/test';
 import type { Editor } from '@wordpress/e2e-test-utils-playwright';
 import { BLOCK, EDITOR, INSPECTOR_ROOT, TABS, type TabLabel } from './selectors';
 
+/**
+ * The slice of `core/block-editor`'s block shape attributes()/setAttributes()
+ * need. `window.wp` itself is typed `any` (declared by
+ * @wordpress/e2e-test-utils-playwright globally, which a stronger local type
+ * can't override via declaration merging), so callbacks passed to
+ * page.evaluate() type their own return value explicitly instead.
+ */
+interface EditorBlock {
+	clientId: string;
+	name: string;
+	attributes: Record< string, unknown >;
+}
+
 export class TocEditor {
 	constructor(
 		private readonly page: Page,
@@ -64,6 +77,26 @@ export class TocEditor {
 		return this.container().locator( EDITOR.listItems );
 	}
 
+	/** The outermost entry list -- first in DOM order, since the editor's own
+	 *  list builder writes the top-level `<${listStyle}>` before any nested
+	 *  ones. Mirrors TocFrontend.list(). */
+	list(): Locator {
+		return this.container().locator( EDITOR.list ).first();
+	}
+
+	/** 'UL' or 'OL'. */
+	async listTagName(): Promise< string > {
+		return this.list().evaluate( ( el ) => el.tagName );
+	}
+
+	/** The container's own classes -- editor-side equivalent of
+	 *  TocFrontend.containerClassList(), used for preset/collapsible-state
+	 *  assertions that need to hold in both places. */
+	async containerClassList(): Promise< string[] > {
+		const raw = await this.container().getAttribute( 'class' );
+		return raw ? raw.split( /\s+/ ).filter( Boolean ) : [];
+	}
+
 	/** Visible text of every TOC entry, in document order. */
 	async linkTexts(): Promise< string[] > {
 		return ( await this.links().allInnerTexts() ).map( ( t ) => t.trim() );
@@ -80,6 +113,79 @@ export class TocEditor {
 			.filter( { has: this.page.locator( `a:text-is("${ parentText }")` ) } )
 			.first()
 			.locator( `a:text-is("${ childText }")` );
+	}
+
+	/** The block's own title element -- used for the D4 collapsible-title
+	 *  click. Renders as a RichText div with className "eb-toc-title", the
+	 *  same class EDITOR.title already names. */
+	title(): Locator {
+		return this.container().locator( EDITOR.title );
+	}
+
+	/**
+	 * The item-collapse chevron for one entry, if it has one.
+	 *
+	 * Two scopings matter here, for different reasons. `:scope > a` on the
+	 * filter is what makes this the entry's OWN <li> rather than an
+	 * ancestor's -- `has: a:text-is(...)` without it also matches any
+	 * ancestor li, since a parent contains its children's links as
+	 * descendants. `:scope > svg` on the result is what makes this the
+	 * entry's OWN chevron rather than a nested descendant's.
+	 */
+	collapseToggle( entryText: string ): Locator {
+		return this.container()
+			.locator( 'li' )
+			.filter( { has: this.page.locator( `:scope > a:text-is("${ entryText }")` ) } )
+			.locator( ':scope > svg' );
+	}
+
+	// -----------------------------------------------------------------
+	// Attribute access (bypasses the UI -- for REST-fixture-equivalent state
+	// on a block that must be authored through the editor, and for
+	// round-trip assertions after a UI-driven change)
+	// -----------------------------------------------------------------
+
+	/**
+	 * Reads this block's current attributes straight from the editor's data
+	 * store. Used both to assert "the control wrote the right attribute" and
+	 * for the publish/reload round-trip check.
+	 */
+	async attributes(): Promise< Record< string, unknown > > {
+		return this.page.evaluate( ( blockName: string ) => {
+			const blocks = window.wp.data
+				.select( 'core/block-editor' )
+				.getBlocks() as EditorBlock[];
+			const block = blocks.find( ( b ) => b.name === blockName );
+			return block?.attributes ?? {};
+		}, BLOCK.name );
+	}
+
+	/**
+	 * Writes attributes directly through `updateBlockAttributes`, bypassing
+	 * the inspector UI. Deliberately NOT editor.setContent() with hand-written
+	 * markup -- see the comment on insert(): blockId and blockMeta come from
+	 * the block's own mount effect, and pasted markup without them renders
+	 * subtly wrong on the frontend. This is the equivalent capability for a
+	 * block that (unlike a REST fixture) has already been mounted in a real
+	 * editor session, e.g. the sticky position:fixed test, which needs
+	 * blockMeta and therefore cannot be a REST fixture at all.
+	 */
+	async setAttributes( partial: Record< string, unknown > ) {
+		await this.page.evaluate(
+			( [ blockName, attrs ]: [ string, Record< string, unknown > ] ) => {
+				const blocks = window.wp.data
+					.select( 'core/block-editor' )
+					.getBlocks() as EditorBlock[];
+				const block = blocks.find( ( b ) => b.name === blockName );
+				if ( ! block ) {
+					throw new Error( `${ blockName } is not in the editor.` );
+				}
+				window.wp.data
+					.dispatch( 'core/block-editor' )
+					.updateBlockAttributes( block.clientId, attrs );
+			},
+			[ BLOCK.name, partial ] as [ string, Record< string, unknown > ]
+		);
 	}
 
 	// -----------------------------------------------------------------
@@ -137,5 +243,53 @@ export class TocEditor {
 	 */
 	panel( title: string ): Locator {
 		return this.inspector().getByRole( 'button', { name: title, exact: true } );
+	}
+
+	/**
+	 * Opens a PanelBody that starts collapsed -- Title and Scroll both render
+	 * with `initialOpen: false`, unlike Content Settings. A no-op if it is
+	 * already open, so callers don't need to track state themselves.
+	 */
+	async expandPanel( title: string ) {
+		const header = this.panel( title );
+		if ( ( await header.getAttribute( 'aria-expanded' ) ) !== 'true' ) {
+			await header.click();
+		}
+	}
+
+	/**
+	 * A ToggleControl by its visible label. WP renders these as a real
+	 * `<input type="checkbox">` with a linked label, so role + accessible
+	 * name is enough -- no CSS class needed the way tab buttons require one.
+	 */
+	toggle( label: string ): Locator {
+		return this.inspector().getByRole( 'checkbox', { name: label, exact: true } );
+	}
+
+	/** Sets a ToggleControl to a specific state rather than toggling blind --
+	 *  lets a test state the target state instead of counting clicks. */
+	async setToggle( label: string, on: boolean ) {
+		const checkbox = this.toggle( label );
+		if ( ( await checkbox.isChecked() ) !== on ) {
+			await checkbox.click();
+		}
+	}
+
+	/** A SelectControl by its visible label -- Preset, Sticky Position, Scroll
+	 *  Target, List Style. WP renders these as a native `<select>`. */
+	selectControl( label: string ): Locator {
+		return this.inspector().getByRole( 'combobox', { name: label, exact: true } );
+	}
+
+	/** A numeric TextControl by its visible label -- currently only Offset
+	 *  Top, which sets `type="number"` and so gets the spinbutton role. */
+	numberField( label: string ): Locator {
+		return this.inspector().getByRole( 'spinbutton', { name: label, exact: true } );
+	}
+
+	/** A plain-text field by its visible label -- e.g. Title Text. Renders as
+	 *  a contentEditable-backed textbox, not a native `<input>`. */
+	textField( label: string ): Locator {
+		return this.inspector().getByRole( 'textbox', { name: label, exact: true } );
 	}
 }

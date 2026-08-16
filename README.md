@@ -103,7 +103,14 @@ scripts/
 tests/
   global-setup.ts            authenticate once, reset the site
   specs/
-    table-of-contents.spec.ts    one file per block, Gutenberg convention
+    table-of-contents.spec.ts             Tier 1: registration, insertion,
+                                            inspector tabs, heading detection,
+                                            frontend rendering
+    table-of-contents-settings.spec.ts    Tier 2: settings behaviour --
+                                            same outer describe() as Tier 1,
+                                            so the QA report groups them
+                                            together; a second file rather
+                                            than growing the first one
   support/
     shared/                block-agnostic: base test fixture, console errors,
                             content builders
@@ -169,7 +176,8 @@ structure above is what actually makes the claim true.
 
 ## Known defects
 
-Two confirmed bugs are recorded as `test.fail()` in the spec. They fail on
+Nine confirmed bugs are recorded as `test.fail()` in the specs -- two in Tier 1
+(heading detection), seven in Tier 2 (settings behaviour). They fail on
 purpose; the run stays green and the report lists them separately from
 regressions.
 
@@ -180,6 +188,13 @@ signal it has been fixed and the marker should be removed.
 |---|---|---|
 | D1 | The first heading added _after_ the block is inserted is silently marked excluded (`deleteHeaderList` `isDelete: true`) and disappears once a second heading exists. | A section missing from the published TOC, in an ordinary authoring order, with no feedback to the author. |
 | D2 | An empty heading becomes a TOC entry with an empty link. The frontend href is `#eb-table-content-N`, which resolves to nothing -- a genuinely broken link. | Empty bullet in the list plus a dead link. Editor and frontend also disagree on the href. |
+| D3 | The block toolbar's Unordered/Ordered/None buttons write to `listType`; nothing reads it -- both the editor and PHP renderer use `listStyle` instead. | Three toolbar buttons that visibly toggle and change nothing on the page. |
+| D4 | The editor title's `onClick` calls `setVisible(!visible)`, but neither is ever defined. | `ReferenceError` every time an author clicks the block title while Collapsible is on. |
+| D5 | Frontend `_toggleCollapse()` dereferences `.eb-toc-title` unguarded. Reachable by enabling Collapsible then turning Display Title off -- the toggle itself vanishes from the inspector, but the attribute stays true. | `TypeError` aborts the frontend script's `init()` before scroll-to-top, sticky show/hide, copy-link and item-collapse ever wire up -- all silently dead. |
+| D6 | ClipboardJS is only attached when a heading's slug starts with a letter. A digit-led heading (e.g. "2024 Roadmap") gets no working copy handler, but a separate listener still shows "Copied!" regardless. | The UI confirms a copy that never happened, for any heading starting with a digit. |
+| D7 | Frontend `_hideOnDevice()` dereferences the scroll-to-top button unguarded; that element only exists when Scroll To Top is on. | Any hide-on-device flag with Scroll To Top off throws and kills copy-link and item-collapse, same as D5. |
+| D8 | PHP guards the sticky reopen button's title with `if ( $displayTitle )`, but by that line `$displayTitle` is the string `'true'`/`'false'` -- always truthy. | Sticky + Display Title off still shows the title text inside the reopen button. |
+| D9 | The item-collapse chevron is unclickable in the editor, for any user, in any browser. The plugin binds its listener directly to the injected `<svg>`, but WordPress core's own block-editor stylesheet sets `pointer-events:none` on `.wp-block svg:not([draggable])`. | Clicking the chevron in the editor preview does nothing; the frontend has no such issue since that rule only targets the editor's `.wp-block` ancestor class. |
 
 Full reproductions are in the comments above each test.
 
@@ -239,10 +254,16 @@ persistence, inspector tabs, heading detection and nesting, frontend
 rendering, link resolution, scroll-to-section, empty-page safety, 375px
 layout.
 
-**Not covered yet:** settings behaviour (list style, presets, collapsible,
-sticky, copy-link, scroll-to-top), FSE / site editor placement, headings inside
-Group and Columns, multiple blocks on one page, third-party heading
-integrations, PHP 7.4, screenshot baselines.
+**Covered (Tier 2, Table of Contents):** settings behaviour -- list style,
+presets, collapsible, sticky, copy-link, scroll-to-top, item-collapse, title
+display, smooth-scroll/offset -- verified in the editor and on the published
+page. One inspector-driven test per setting proves the control writes the
+right attribute; value and behaviour combinations are driven by attributes
+directly. See `tests/specs/table-of-contents-settings.spec.ts`.
+
+**Not covered yet:** FSE / site editor placement, headings inside Group and
+Columns, multiple blocks on one page, third-party heading integrations,
+PHP 7.4, screenshot baselines.
 
 The exclusions are deliberate. A small suite people trust beats a broad suite
 people learn to ignore.
