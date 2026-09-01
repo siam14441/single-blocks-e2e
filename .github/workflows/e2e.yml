@@ -2,13 +2,21 @@ name: E2E - Single Blocks
 
 # Primary entry point is workflow_dispatch: a human preparing a release points
 # this at the candidate build for one block. pull_request keeps the framework
-# itself honest by running every configured block against latest. schedule
-# does the same nightly, so a WordPress core update that breaks a block is
-# caught before somebody reports it.
+# itself honest by running every configured block against the WP/PHP matrix
+# below. schedule does the same nightly, so a WordPress or PHP release that
+# breaks a block is caught before somebody reports it.
 #
 # BLOCKS: the matrix is not hand-maintained. The "list blocks" job reads
 # blocks/*.config.mjs at run time (scripts/list-blocks.mjs), so adding a block
 # to this repo adds it to CI with no edit to this file.
+#
+# WP/PHP: three combinations run by default -- WP 6.0 (this repo's floor) and
+# latest, both at whatever PHP wp-env defaults to for that release, plus WP
+# 6.0 paired with PHP 7.4. That's the oldest still-supported stack and the
+# one most likely to break in a way "latest everything" never exercises;
+# pairing 7.4 with latest WP too would just be a fourth combination nobody
+# asked for. A workflow_dispatch run can pin either input to a single value,
+# same as `block` above.
 on:
   workflow_dispatch:
     inputs:
@@ -25,7 +33,11 @@ on:
         required: false
         type: string
       wp_version:
-        description: 'WordPress version, e.g. 6.7. Leave blank for latest.'
+        description: 'WordPress version, e.g. 6.7. Leave blank to run the default matrix (6.0 and latest).'
+        required: false
+        type: string
+      php_version:
+        description: 'PHP version, e.g. 7.4. Leave blank to run the default matrix (wp-env''s default, and 7.4 at WP 6.0).'
         required: false
         type: string
   pull_request:
@@ -39,6 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      wp_versions: ${{ steps.matrix.outputs.wp_versions }}
+      php_versions: ${{ steps.matrix.outputs.php_versions }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,8 +69,20 @@ jobs:
             echo "matrix=$(node scripts/list-blocks.mjs --json)" >> "$GITHUB_OUTPUT"
           fi
 
+          if [ -n "${{ inputs.wp_version }}" ]; then
+            echo "wp_versions=[\"${{ inputs.wp_version }}\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'wp_versions=["6.0","latest"]' >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -n "${{ inputs.php_version }}" ]; then
+            echo "php_versions=[\"${{ inputs.php_version }}\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'php_versions=["default","7.4"]' >> "$GITHUB_OUTPUT"
+          fi
+
   e2e:
-    name: E2E (${{ matrix.block }})
+    name: E2E (${{ matrix.block }}, WP ${{ matrix.wp_version }}, PHP ${{ matrix.php_version }})
     needs: list-blocks
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -67,6 +93,13 @@ jobs:
       fail-fast: false
       matrix:
         block: ${{ fromJson(needs.list-blocks.outputs.matrix) }}
+        wp_version: ${{ fromJson(needs.list-blocks.outputs.wp_versions) }}
+        php_version: ${{ fromJson(needs.list-blocks.outputs.php_versions) }}
+        exclude:
+          # See the WP/PHP note at the top of this file -- latest WP only
+          # runs at wp-env's default PHP, not also at 7.4.
+          - wp_version: latest
+            php_version: '7.4'
 
     env:
       # wp-env's fixed defaults. Not secrets -- the environment is created and
@@ -101,7 +134,7 @@ jobs:
 
       # --- 3. Boot WordPress -----------------------------------------------
       - name: Generate wp-env config
-        run: node scripts/generate-wp-env.mjs --block=${{ matrix.block }} --wp-version=${{ inputs.wp_version }}
+        run: node scripts/generate-wp-env.mjs --block=${{ matrix.block }} --wp-version=${{ matrix.wp_version }} --php-version=${{ matrix.php_version }}
 
       - name: Start wp-env
         run: npx wp-env start
@@ -147,9 +180,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          # Matrix jobs share one workflow run, so the block slug keeps each
-          # job's artifact bundle from overwriting a sibling's.
-          name: e2e-artifacts-${{ matrix.block }}
+          # Matrix jobs share one workflow run, so block/WP/PHP together keep
+          # each job's artifact bundle from overwriting a sibling's.
+          name: e2e-artifacts-${{ matrix.block }}-wp${{ matrix.wp_version }}-php${{ matrix.php_version }}
           path: |
             artifacts/**/*.md
             artifacts/**/*.json
