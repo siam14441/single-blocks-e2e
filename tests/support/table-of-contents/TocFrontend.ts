@@ -126,14 +126,32 @@ export class TocFrontend {
 	}
 
 	/**
-	 * True when the page scrolls sideways. Catches the common responsive
-	 * failure where a fixed width or a long unbroken heading pushes the
-	 * viewport wider than the screen.
+	 * True when the BLOCK overflows sideways. Catches the responsive failure
+	 * this suite actually owns: a fixed width or a long unbroken heading
+	 * pushing the table of contents wider than the screen.
+	 *
+	 * Scoped to the block on purpose. This used to measure the whole document
+	 * (`documentElement.scrollWidth > clientWidth`), which made the assertion
+	 * fail for things the plugin does not own and cannot fix: at 375px the
+	 * default test theme's comment-form textarea renders 403px wide, and the
+	 * admin bar -- present because the suite browses while authenticated --
+	 * pushes its own chrome past the viewport too. Neither involves the block,
+	 * so a page-level check reported "the block breaks on mobile" when the
+	 * block was laid out correctly. Measure the subject under test, not the
+	 * page it happens to sit on.
 	 */
 	async hasHorizontalOverflow(): Promise< boolean > {
-		return this.page.evaluate(
-			() => document.documentElement.scrollWidth > document.documentElement.clientWidth
-		);
+		return this.container().evaluate( ( el ) => {
+			const viewportWidth = document.documentElement.clientWidth;
+			const rect = el.getBoundingClientRect();
+
+			// Sub-pixel layout rounding is not a responsive bug, so allow 1px.
+			return (
+				rect.left < -1 ||
+				rect.right > viewportWidth + 1 ||
+				el.scrollWidth > el.clientWidth + 1
+			);
+		} );
 	}
 
 	// -----------------------------------------------------------------

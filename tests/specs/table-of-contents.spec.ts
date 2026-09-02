@@ -55,7 +55,7 @@ test.describe( 'Table Of Contents Block', () => {
 	 * Tagged @registration so `npm run verify:suite` can run exactly this
 	 * group against a known-broken build and confirm it fails.
 	 */
-	test.describe( 'Block registration @registration', () => {
+	test.describe( 'Block registration @registration @compat', () => {
 		test( 'is registered server-side with apiVersion 3', async ( {
 			requestUtils,
 		} ) => {
@@ -128,7 +128,7 @@ test.describe( 'Table Of Contents Block', () => {
 			await admin.createNewPost();
 		} );
 
-		test( 'renders in the editor canvas without browser errors', async ( {
+		test( 'renders in the editor canvas without browser errors @compat', async ( {
 			tocEditor,
 			consoleErrors,
 		} ) => {
@@ -149,7 +149,7 @@ test.describe( 'Table Of Contents Block', () => {
 			await expect( tocEditor.container() ).toContainText( EDITOR.emptyState );
 		} );
 
-		test( 'stays valid after publish and reload', async ( {
+		test( 'stays valid after publish and reload @compat', async ( {
 			admin,
 			editor,
 			page,
@@ -324,7 +324,7 @@ test.describe( 'Table Of Contents Block', () => {
 			await tocEditor.insert();
 		}
 
-		test( 'lists every heading, in document order, with no user action', async ( {
+		test( 'lists every heading, in document order, with no user action @compat', async ( {
 			tocEditor,
 		} ) => {
 			await writeHeadingsThenInsertBlock( tocEditor, STANDARD_HEADINGS );
@@ -336,7 +336,7 @@ test.describe( 'Table Of Contents Block', () => {
 			);
 		} );
 
-		test( 'nests subsections inside their parent section', async ( {
+		test( 'nests subsections inside their parent section @compat', async ( {
 			tocEditor,
 		} ) => {
 			await writeHeadingsThenInsertBlock( tocEditor, STANDARD_HEADINGS );
@@ -460,7 +460,7 @@ test.describe( 'Table Of Contents Block', () => {
 	 * here.
 	 */
 	test.describe( 'Reading and navigating', () => {
-		test( 'renders the table of contents with all entries', async ( {
+		test( 'renders the table of contents with all entries @compat', async ( {
 			requestUtils,
 			page,
 			tocFrontend,
@@ -481,7 +481,7 @@ test.describe( 'Table Of Contents Block', () => {
 			);
 		} );
 
-		test( 'every entry links to a section that exists on the page', async ( {
+		test( 'every entry links to a section that exists on the page @compat', async ( {
 			requestUtils,
 			page,
 			tocFrontend,
@@ -509,7 +509,7 @@ test.describe( 'Table Of Contents Block', () => {
 			).toEqual( [] );
 		} );
 
-		test( 'clicking an entry brings its section into view', async ( {
+		test( 'clicking an entry brings its section into view @compat', async ( {
 			requestUtils,
 			page,
 			tocFrontend,
@@ -536,7 +536,7 @@ test.describe( 'Table Of Contents Block', () => {
 			await expect( target ).toBeInViewport();
 		} );
 
-		test( 'a page with no headings loads without browser errors', async ( {
+		test( 'a page with no headings loads without browser errors @compat', async ( {
 			requestUtils,
 			page,
 			consoleErrors,
@@ -576,49 +576,13 @@ test.describe( 'Table Of Contents Block', () => {
 
 			await expect( tocFrontend.container() ).toBeVisible();
 
-			// TEMPORARY DIAGNOSTIC -- remove before merge.
-			const diagnostic = await page.evaluate( () => {
-				const doc = document.documentElement;
-				const clientWidth = doc.clientWidth;
-				const offenders: string[] = [];
-				document.querySelectorAll( '*' ).forEach( ( el ) => {
-					const rect = el.getBoundingClientRect();
-					if ( rect.right > clientWidth + 1 || rect.left < -1 ) {
-						const e = el as HTMLElement;
-						offenders.push(
-							`${ e.tagName }` +
-								`${ e.id ? '#' + e.id : '' }` +
-								`${ e.className && typeof e.className === 'string' ? '.' + e.className.trim().split( /\s+/ ).join( '.' ) : '' }` +
-								` left=${ Math.round( rect.left ) } right=${ Math.round( rect.right ) } width=${ Math.round( rect.width ) }` +
-								` minWidth=${ getComputedStyle( e ).minWidth } position=${ getComputedStyle( e ).position }`
-						);
-					}
-				} );
-				return {
-					wpVersion:
-						document
-							.querySelector( 'meta[name="generator"]' )
-							?.getAttribute( 'content' ) ?? 'unknown',
-					scrollWidth: doc.scrollWidth,
-					clientWidth,
-					innerWidth: window.innerWidth,
-					bodyScrollWidth: document.body.scrollWidth,
-					offenders: offenders.slice( 0, 25 ),
-				};
-			} );
-			// eslint-disable-next-line no-console
-			console.log(
-				'\n===== MOBILE OVERFLOW DIAGNOSTIC =====\n' +
-					JSON.stringify( diagnostic, null, 2 ) +
-					'\n======================================\n'
-			);
-
 			// Structural stand-in for a visual check: cheap, stable, and it
 			// catches the gross CSS failures (fixed widths, overflowing text)
 			// that a screenshot baseline would flag -- without the flakiness.
+			// Scoped to the block, not the page: see hasHorizontalOverflow().
 			expect(
 				await tocFrontend.hasHorizontalOverflow(),
-				'The page scrolls horizontally at 375px wide.'
+				'The table of contents overflows a 375px-wide screen.'
 			).toBe( false );
 		} );
 	} );

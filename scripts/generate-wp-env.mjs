@@ -55,7 +55,18 @@ const wpEnvConfig = {
 	// second block's plugin here would silently move this repo away from
 	// per-block isolation without anyone deciding to.
 	plugins: [ `./.plugin-under-test/${ slug }/${ pluginSlug }` ],
-	themes: [ 'WordPress/twentytwentyfive' ],
+	// Twenty Twenty-Five ONLY on latest.
+	//
+	// Pinning it on every leg was a real bug: TT5 ships with (and requires)
+	// WP 6.7+, so forcing it onto the WP 6.0 floor tests a combination that
+	// cannot exist in the wild -- no 6.0 user has TT5 -- and it breaks the
+	// editor there, which reads as "the block is broken on 6.0" when the
+	// block is fine and the *theme* is the thing that does not belong.
+	//
+	// Omitting `themes` lets each core version use the default theme it
+	// actually ships with (Twenty Twenty-Two on 6.0), which is both a real
+	// user's configuration and one the version supports.
+	themes: wpVersion ? [] : [ 'WordPress/twentytwentyfive' ],
 	config: {
 		WP_DEBUG: true,
 		WP_DEBUG_LOG: true,
@@ -64,6 +75,12 @@ const wpEnvConfig = {
 		// See tests/support/shared/content.ts for the reproduction.
 		WP_DEBUG_DISPLAY: false,
 		SCRIPT_DEBUG: false,
+		// Keep a pinned `core` actually pinned. Without this, WP-Cron's update
+		// check runs during the suite and background-updates core past the
+		// version this leg claims to test: a 6.0 job verified "WordPress 6.0"
+		// at boot and was serving WordPress 7.1 five minutes later, so the
+		// compatibility result was reported against a version nobody chose.
+		WP_AUTO_UPDATE_CORE: false,
 	},
 	env: {
 		tests: {
