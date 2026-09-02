@@ -43,7 +43,25 @@ const IGNORED = [
 	/is deprecated since version/i,
 ];
 
+/**
+ * Requests WordPress itself makes and is content to have fail. These surface
+ * in the console only as a bare "Failed to load resource", with no URL, so
+ * they cannot be filtered by message text the way the entries above are.
+ */
+const IGNORED_REQUESTS = [
+	// Core's own template probe: the post editor asks
+	// `?p=<id>&_wp-find-template=true` which template renders a post. It is
+	// issued by core, never by a block, and 404s on WordPress versions whose
+	// template resolution predates the current behaviour -- so on the 6.0
+	// matrix leg it failed every editor test for a request the plugin does
+	// not make and could not fix.
+	/[?&]_wp-find-template/,
+];
+
 const isIgnorable = ( text: string ) => IGNORED.some( ( re ) => re.test( text ) );
+
+const isIgnorableRequest = ( url: string ) =>
+	IGNORED_REQUESTS.some( ( re ) => re.test( url ) );
 
 export class ConsoleErrorCollector {
 	private readonly errors: CapturedError[] = [];
@@ -60,7 +78,7 @@ export class ConsoleErrorCollector {
 
 	constructor( page: Page ) {
 		page.on( 'response', ( response ) => {
-			if ( response.status() >= 400 ) {
+			if ( response.status() >= 400 && ! isIgnorableRequest( response.url() ) ) {
 				this.failedRequests.push( `HTTP ${ response.status() } ${ response.url() }` );
 			}
 		} );
@@ -102,10 +120,22 @@ export class ConsoleErrorCollector {
 	 * reads as "inserting the block threw" rather than a generic console dump.
 	 */
 	report(): string | null {
-		if ( this.errors.length === 0 ) {
+		// A bare "Failed to load resource" says only that *something* failed.
+		// When every failed request was an ignorable one (see
+		// IGNORED_REQUESTS), that console line is the echo of a request the
+		// suite has already decided not to care about, so it is not a defect
+		// to report. Any unignored failure is still recorded, and still fails.
+		const errors =
+			this.failedRequests.length === 0
+				? this.errors.filter(
+						( e ) => ! /Failed to load resource/i.test( e.text )
+				  )
+				: this.errors;
+
+		if ( errors.length === 0 ) {
 			return null;
 		}
-		const lines = this.errors.map(
+		const lines = errors.map(
 			( e, i ) => `  ${ i + 1 }. [${ e.type }] ${ e.text }`
 		);
 
