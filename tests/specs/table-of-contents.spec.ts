@@ -576,6 +576,43 @@ test.describe( 'Table Of Contents Block', () => {
 
 			await expect( tocFrontend.container() ).toBeVisible();
 
+			// TEMPORARY DIAGNOSTIC -- remove before merge.
+			const diagnostic = await page.evaluate( () => {
+				const doc = document.documentElement;
+				const clientWidth = doc.clientWidth;
+				const offenders: string[] = [];
+				document.querySelectorAll( '*' ).forEach( ( el ) => {
+					const rect = el.getBoundingClientRect();
+					if ( rect.right > clientWidth + 1 || rect.left < -1 ) {
+						const e = el as HTMLElement;
+						offenders.push(
+							`${ e.tagName }` +
+								`${ e.id ? '#' + e.id : '' }` +
+								`${ e.className && typeof e.className === 'string' ? '.' + e.className.trim().split( /\s+/ ).join( '.' ) : '' }` +
+								` left=${ Math.round( rect.left ) } right=${ Math.round( rect.right ) } width=${ Math.round( rect.width ) }` +
+								` minWidth=${ getComputedStyle( e ).minWidth } position=${ getComputedStyle( e ).position }`
+						);
+					}
+				} );
+				return {
+					wpVersion:
+						document
+							.querySelector( 'meta[name="generator"]' )
+							?.getAttribute( 'content' ) ?? 'unknown',
+					scrollWidth: doc.scrollWidth,
+					clientWidth,
+					innerWidth: window.innerWidth,
+					bodyScrollWidth: document.body.scrollWidth,
+					offenders: offenders.slice( 0, 25 ),
+				};
+			} );
+			// eslint-disable-next-line no-console
+			console.log(
+				'\n===== MOBILE OVERFLOW DIAGNOSTIC =====\n' +
+					JSON.stringify( diagnostic, null, 2 ) +
+					'\n======================================\n'
+			);
+
 			// Structural stand-in for a visual check: cheap, stable, and it
 			// catches the gross CSS failures (fixed widths, overflowing text)
 			// that a screenshot baseline would flag -- without the flakiness.
