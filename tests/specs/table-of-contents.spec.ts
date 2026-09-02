@@ -35,6 +35,29 @@ async function requirePostId( postId: number | null ): Promise< number > {
 	return postId as number;
 }
 
+/**
+ * @compat -- what the old-WordPress matrix legs run.
+ *
+ * The compatibility legs answer one narrow question: does the block still
+ * work on the floor this plugin advertises (WP 6.0 / PHP 7.4 per readme.txt)?
+ * Not "is every setting pixel-correct there" -- that depth belongs to the
+ * primary `latest` environment, which runs everything.
+ *
+ * The tag covers: server-side registration and apiVersion, the editor bundle
+ * loading at all (the exact v1.3.4 failure -- EBTOCControls undefined, block
+ * absent from the inserter), reachability in the inserter, and the whole
+ * frontend contract (entries render, links resolve, navigation works, an
+ * empty TOC is safe).
+ *
+ * Deliberately NOT tagged: anything asserting on the editor CANVAS DOM.
+ * `@wordpress/e2e-test-utils-playwright` reaches the canvas only as
+ * `page.frameLocator('[name="editor-canvas"]')`, and that iframe does not
+ * exist before WP 6.3 -- on 6.0 the canvas renders inline, so those selectors
+ * match nothing and time out. That is a limitation of the test tooling on old
+ * WordPress, not a statement about the block, which is why those tests still
+ * run in full on `latest`. Editor-side health on the floor version is still
+ * covered here, just through signals that do not depend on the iframe.
+ */
 test.describe( 'Table Of Contents Block', () => {
 	// Posts accumulate across tests and a stale one can make a later frontend
 	// assertion pass against the wrong page. Cheaper to reset than to debug.
@@ -128,7 +151,7 @@ test.describe( 'Table Of Contents Block', () => {
 			await admin.createNewPost();
 		} );
 
-		test( 'renders in the editor canvas without browser errors @compat', async ( {
+		test( 'renders in the editor canvas without browser errors', async ( {
 			tocEditor,
 			consoleErrors,
 		} ) => {
@@ -149,7 +172,7 @@ test.describe( 'Table Of Contents Block', () => {
 			await expect( tocEditor.container() ).toContainText( EDITOR.emptyState );
 		} );
 
-		test( 'stays valid after publish and reload @compat', async ( {
+		test( 'stays valid after publish and reload', async ( {
 			admin,
 			editor,
 			page,
@@ -324,7 +347,7 @@ test.describe( 'Table Of Contents Block', () => {
 			await tocEditor.insert();
 		}
 
-		test( 'lists every heading, in document order, with no user action @compat', async ( {
+		test( 'lists every heading, in document order, with no user action', async ( {
 			tocEditor,
 		} ) => {
 			await writeHeadingsThenInsertBlock( tocEditor, STANDARD_HEADINGS );
@@ -336,7 +359,7 @@ test.describe( 'Table Of Contents Block', () => {
 			);
 		} );
 
-		test( 'nests subsections inside their parent section @compat', async ( {
+		test( 'nests subsections inside their parent section', async ( {
 			tocEditor,
 		} ) => {
 			await writeHeadingsThenInsertBlock( tocEditor, STANDARD_HEADINGS );

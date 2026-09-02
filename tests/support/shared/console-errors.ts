@@ -48,7 +48,23 @@ const isIgnorable = ( text: string ) => IGNORED.some( ( re ) => re.test( text ) 
 export class ConsoleErrorCollector {
 	private readonly errors: CapturedError[] = [];
 
+	/**
+	 * URLs behind "Failed to load resource" console errors.
+	 *
+	 * Chrome's console message for a failed request carries the status but not
+	 * the URL, so on its own it reports "something 404'd" and leaves you with
+	 * no way to tell a missing plugin asset from missing core chrome. Watching
+	 * responses recovers the URL so the failure names its own cause.
+	 */
+	private readonly failedRequests: string[] = [];
+
 	constructor( page: Page ) {
+		page.on( 'response', ( response ) => {
+			if ( response.status() >= 400 ) {
+				this.failedRequests.push( `HTTP ${ response.status() } ${ response.url() }` );
+			}
+		} );
+
 		page.on( 'console', ( message: ConsoleMessage ) => {
 			if ( message.type() !== 'error' ) {
 				return;
@@ -75,6 +91,7 @@ export class ConsoleErrorCollector {
 	/** Drops everything captured so far -- use to scope a check to one action. */
 	clear() {
 		this.errors.length = 0;
+		this.failedRequests.length = 0;
 	}
 
 	/**
@@ -88,8 +105,18 @@ export class ConsoleErrorCollector {
 		if ( this.errors.length === 0 ) {
 			return null;
 		}
-		return this.errors
-			.map( ( e, i ) => `  ${ i + 1 }. [${ e.type }] ${ e.text }` )
-			.join( '\n' );
+		const lines = this.errors.map(
+			( e, i ) => `  ${ i + 1 }. [${ e.type }] ${ e.text }`
+		);
+
+		// Name the URLs behind any "Failed to load resource" line above.
+		if ( this.failedRequests.length > 0 ) {
+			lines.push(
+				'  failed requests:',
+				...this.failedRequests.map( ( r ) => `    - ${ r }` )
+			);
+		}
+
+		return lines.join( '\n' );
 	}
 }
